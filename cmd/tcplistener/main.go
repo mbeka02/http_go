@@ -22,7 +22,6 @@ func getLinesChannel(f io.ReadCloser) <-chan string {
 		for {
 			b := make([]byte, 8, 8)
 			n, err := f.Read(b)
-			// handle EOF
 			if err != nil {
 				if line != "" {
 					linesChannel <- line
