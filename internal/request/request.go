@@ -5,9 +5,17 @@ import (
 	"io"
 )
 
+type Status int
+
 type Request struct {
 	RequestLine RequestLine
+	Status      Status
 }
+
+const (
+	Initialized Status = iota // 0
+	Done                      // 1
+)
 
 type RequestLine struct {
 	HttpVersion   string
@@ -26,7 +34,7 @@ var (
 )
 
 func (ch *chunkReader) Read(data []byte) (numBytes int, err error) {
-	if ch.pos >= len(data) {
+	if ch.pos >= len(ch.data) {
 		return 0, io.EOF
 	}
 	endIndex := ch.pos + ch.numBytesPerRead
