@@ -1,6 +1,9 @@
 package request
 
-import "fmt"
+import (
+	"fmt"
+	"io"
+)
 
 type Request struct {
 	RequestLine RequestLine
@@ -11,8 +14,30 @@ type RequestLine struct {
 	Method        string
 	RequestTarget string
 }
+type chunkReader struct {
+	data            string
+	numBytesPerRead int
+	pos             int
+}
 
 var (
-	ERROR_INVALID_START_LINE    = fmt.Errorf("Invalid Start Line")
+	ERROR_MALFORMED_START_LINE  = fmt.Errorf("Malformed Start Line")
 	ERROR_INCOMPLETE_START_LINE = fmt.Errorf("The Start Line is incomplete")
 )
+
+func (ch *chunkReader) Read(data []byte) (numBytes int, err error) {
+	if ch.pos >= len(data) {
+		return 0, io.EOF
+	}
+	endIndex := ch.pos + ch.numBytesPerRead
+	if endIndex > len(ch.data) {
+		endIndex = len(ch.data)
+	}
+	numBytes = copy(data, ch.data[ch.pos:endIndex])
+	ch.pos += numBytes
+	if numBytes > ch.numBytesPerRead {
+		numBytes = ch.numBytesPerRead
+		ch.pos -= numBytes - ch.numBytesPerRead
+	}
+	return numBytes, nil
+}
