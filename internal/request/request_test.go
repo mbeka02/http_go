@@ -24,7 +24,7 @@ func RequestFromReader(r io.Reader) (*Request, error) {
 		Status: Initialized,
 	}
 	for {
-		// check if the buffer is full and if it is allocate more space
+		// Doubles the buffer size and copies the old content
 		if readToIndex == len(buf) {
 			log.Println("The buffer is full, allocating more space")
 			newSize := len(buf) * 2
@@ -45,7 +45,7 @@ func RequestFromReader(r io.Reader) (*Request, error) {
 					}
 					readToIndex -= bytesParsed
 				}
-				// Only mark as Done if we've successfully parsed a complete request
+				// Only mark as Done if a full request has been parsed
 				if request.Status != Done {
 					return nil, fmt.Errorf("incomplete request: no complete request line found")
 				}
@@ -86,7 +86,7 @@ func (r *Request) parse(data []byte) (int, error) {
 	if err != nil {
 		return bytesRead, err
 	}
-	// more data is needed in this scenario
+	// In this scenarion more data is needed before parsing
 	if bytesRead == 0 {
 		return 0, nil
 	}
@@ -108,12 +108,10 @@ func parseRequestLine(s string) (*RequestLine, string, int, error) {
 	startLine := s[:idx]
 	// include CRLF in bytesRead
 	lengthParsed := len([]byte(startLine)) + len(separator)
-	fmt.Println("length parsed=>", lengthParsed)
 	parts := strings.Split(startLine, " ")
 	if len(parts) != 3 {
 		return nil, s, lengthParsed, ERROR_MALFORMED_START_LINE
 	}
-	// make sure to account for the separator
 	restOfMessage := s[idx+len(separator):]
 	httpParts := strings.Split(parts[2], "/")
 	if len(httpParts) != 2 || httpParts[0] != "HTTP" || httpParts[1] != "1.1" {
