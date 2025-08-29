@@ -41,7 +41,7 @@ func TestHeaders(t *testing.T) {
 	n, done, err = headers.Parse(data)
 	require.NoError(t, err)
 	require.NotNil(t, headers)
-	assert.Equal(t, "localhost:42069", headers["host"])
+	assert.Equal(t, "localhost:42069", headers.Get("host"))
 	assert.Equal(t, 53, n)
 	assert.True(t, done)
 
@@ -52,4 +52,13 @@ func TestHeaders(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, 0, n)
 	assert.False(t, done)
+
+	// Test: Multiple values for a single header key
+	headers = NewHeaders()
+	data = []byte("Key1: Value1\r\n  Key1: Value2\r\n  Key1:Value3 \r\n\r\n")
+	n, done, err = headers.Parse(data)
+	require.NoError(t, err)
+	assert.Equal(t, 48, n)
+	assert.True(t, done)
+	assert.Equal(t, "Value1,Value2,Value3", headers.Get("key1"))
 }

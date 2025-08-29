@@ -71,7 +71,13 @@ func (h Headers) Parse(data []byte) (int, bool, error) {
 		dataRead += idx + len(crlf)
 		fmt.Println("read:", dataRead, "bytes")
 		// add the pair to the headers map
-		h[fieldName] = fieldValue
+		val, ok := h[fieldName]
+		if ok {
+			// concat the new value if the key already exists
+			h[fieldName] = val + "," + fieldValue
+		} else {
+			h[fieldName] = fieldValue
+		}
 	}
 	return dataRead, done, nil
 }
