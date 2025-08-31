@@ -6,7 +6,6 @@ import (
 	"log"
 	"regexp"
 	"strings"
-	"unicode"
 )
 
 type Headers map[string]string
@@ -44,6 +43,7 @@ func (h Headers) List() {
 	}
 }
 
+// Parse() reads data and calls parseHeader() that adds individual headers to the map// it returns the amount of data read , the parser state and an error
 func (h Headers) Parse(data []byte) (int, bool, error) {
 	crlf := []byte("\r\n")
 	dataRead := 0
@@ -62,7 +62,6 @@ func (h Headers) Parse(data []byte) (int, bool, error) {
 			break
 		}
 
-		// data = bytes.TrimSpace(data)
 		fieldName, fieldValue, err := parseHeader(data[dataRead : dataRead+idx])
 		if err != nil {
 			log.Println(err)
@@ -98,21 +97,11 @@ func parseHeader(fieldLine []byte) (string, string, error) {
 		return "", "", ERROR_INVALID_FIELD_NAME
 	}
 	formattedFieldName := strings.TrimSpace(strings.ToLower(string(fieldName)))
-	// ensure the field name is valid
+	// ensure the field name uses valid characters
 	match := fieldNameRegex.MatchString(formattedFieldName)
 	if !match {
-		log.Println("NOT A MATCH")
 		return "", "", ERROR_INVALID_HEADER_KEY
 	}
 	formattedFieldValue := string(fieldValue)
 	return formattedFieldName, formattedFieldValue, nil
-}
-
-func containsWhitespace(s string) bool {
-	for _, r := range s {
-		if unicode.IsSpace(r) {
-			return true
-		}
-	}
-	return false
 }

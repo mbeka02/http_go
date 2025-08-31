@@ -6,6 +6,8 @@ import (
 	"io"
 	"log"
 	"strings"
+
+	"github.com/mbeka02/go_http/internal/headers"
 )
 
 type Status int
@@ -13,11 +15,13 @@ type Status int
 type Request struct {
 	RequestLine RequestLine
 	Status      Status
+	Headers     headers.Headers
 }
 
 const (
-	Initialized Status = iota // 0
-	Done                      // 1
+	RequestStateInitialized Status = iota // 0
+	RequestStateDone                      // 1
+	RequestStateParsingHeaders
 )
 const bufferSize = 8
 
@@ -60,7 +64,8 @@ func RequestFromReader(r io.Reader) (*Request, error) {
 		bytesParsed int = 0
 	)
 	request := &Request{
-		Status: Initialized,
+		Status:  RequestStateInitialized,
+		Headers: make(map[string]string),
 	}
 	for {
 		// Doubles the buffer size and copies the old content
@@ -85,7 +90,7 @@ func RequestFromReader(r io.Reader) (*Request, error) {
 					readToIndex -= bytesParsed
 				}
 				// Only mark as Done if a full request has been parsed
-				if request.Status != Done {
+				if request.Status != RequestStateDone {
 					return nil, fmt.Errorf("incomplete request: no complete request line found")
 				}
 				break
@@ -103,7 +108,7 @@ func RequestFromReader(r io.Reader) (*Request, error) {
 		readToIndex -= bytesParsed
 
 		// Break when request is complete
-		if request.Status == Done {
+		if request.Status == RequestStateDone {
 			break
 		}
 	}
@@ -114,21 +119,75 @@ func RequestFromReader(r io.Reader) (*Request, error) {
 // It updates the Status(state) of the parser, and the parsed RequestLine field.
 // It returns the number of bytes it consumed (meaning successfully parsed) and an error if it encountered one.
 func (r *Request) parse(data []byte) (int, error) {
-	if r.Status == Done {
-		return 0, fmt.Errorf("error:trying to read data in a done state")
+	totalBytesParsed := 0
+	for r.Status != RequestStateDone {
+		n, err := r.parseSingle(data[totalBytesParsed:])
+		if err != nil {
+			return 0, err
+		}
+		// If no progress was made, we need more data - exit the loop
+		if n == 0 {
+			break
+		}
+		totalBytesParsed += n
+		fmt.Println("Total bytes parsed:", totalBytesParsed)
 	}
-	requestLine, _, bytesRead, err := parseRequestLine(string(data))
-	if err != nil {
-		return bytesRead, err
+	// if r.Status == RequestStateDone {
+	// 	return 0, fmt.Errorf("error:trying to read data in a done state")
+	// }
+	// requestLine, _, bytesRead, err := parseRequestLine(string(data))
+	// if err != nil {
+	// 	return bytesRead, err
+	// }
+	// // In this scenario more data is needed before parsing
+	// if bytesRead == 0 {
+	// 	return 0, nil
+	// }
+	// // update status and the requestLine
+	// r.Status = RequestStateDone
+	// r.RequestLine = *requestLine
+	// return bytesRead, nil
+	return totalBytesParsed, nil
+}
+
+func (r *Request) parseSingle(data []byte) (int, error) {
+	var (
+		parsedLength int
+		err          error
+	)
+	switch r.Status {
+	case RequestStateDone:
+		err = fmt.Errorf("error:trying to read data in a done state")
+	case RequestStateInitialized:
+		log.Printf("...currently parsing the start line , current data: %s", string(data))
+		requestLine, _, requestLineLength, parseError := parseRequestLine(string(data))
+		if requestLineLength == 0 {
+			log.Println("waiting for more data before the request line is parsed")
+			break
+		}
+		// update status and the requestLine
+		r.Status = RequestStateParsingHeaders
+		r.RequestLine = *requestLine
+
+		parsedLength += requestLineLength
+
+		err = parseError
+	case RequestStateParsingHeaders:
+		log.Printf("...currently parsing the headers , current data: %s", string(data))
+		headersLength, done, parseError := r.Headers.Parse(data)
+		parsedLength += headersLength
+		err = parseError
+		if parseError != nil {
+			break // or return error
+		}
+		if done {
+			r.Status = RequestStateDone
+		}
+	default:
+		err = fmt.Errorf("invalid parser state")
 	}
-	// In this scenarion more data is needed before parsing
-	if bytesRead == 0 {
-		return 0, nil
-	}
-	// update status and the requestLine
-	r.Status = Done
-	r.RequestLine = *requestLine
-	return bytesRead, nil
+
+	return parsedLength, err
 }
 
 func parseRequestLine(s string) (*RequestLine, string, int, error) {
