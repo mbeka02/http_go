@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"strings"
 
 	"github.com/mbeka02/go_http/internal/headers"
@@ -19,9 +18,9 @@ type Request struct {
 }
 
 const (
-	RequestStateInitialized Status = iota // 0
-	RequestStateDone                      // 1
-	RequestStateParsingHeaders
+	RequestStateInitialized    Status = iota // 0
+	RequestStateDone                         // 1
+	RequestStateParsingHeaders               // 2
 )
 const bufferSize = 8
 
@@ -70,7 +69,7 @@ func RequestFromReader(r io.Reader) (*Request, error) {
 	for {
 		// Doubles the buffer size and copies the old content
 		if readToIndex == len(buf) {
-			log.Println("The buffer is full, allocating more space")
+			// log.Println("The buffer is full, allocating more space")
 			newSize := len(buf) * 2
 			newBuf := make([]byte, newSize)
 			copy(newBuf, buf)
@@ -116,7 +115,6 @@ func RequestFromReader(r io.Reader) (*Request, error) {
 }
 
 // parse() accepts the next slice of bytes that needs to be parsed into the Request struct
-// It updates the Status(state) of the parser, and the parsed RequestLine field.
 // It returns the number of bytes it consumed (meaning successfully parsed) and an error if it encountered one.
 func (r *Request) parse(data []byte) (int, error) {
 	totalBytesParsed := 0
@@ -130,26 +128,12 @@ func (r *Request) parse(data []byte) (int, error) {
 			break
 		}
 		totalBytesParsed += n
-		fmt.Println("Total bytes parsed:", totalBytesParsed)
 	}
-	// if r.Status == RequestStateDone {
-	// 	return 0, fmt.Errorf("error:trying to read data in a done state")
-	// }
-	// requestLine, _, bytesRead, err := parseRequestLine(string(data))
-	// if err != nil {
-	// 	return bytesRead, err
-	// }
-	// // In this scenario more data is needed before parsing
-	// if bytesRead == 0 {
-	// 	return 0, nil
-	// }
-	// // update status and the requestLine
-	// r.Status = RequestStateDone
-	// r.RequestLine = *requestLine
-	// return bytesRead, nil
 	return totalBytesParsed, nil
 }
 
+// parseSingle() parses the request line or headers depending on the current state of the parser.
+// It returns the number of bytes that are parsed as well as an error
 func (r *Request) parseSingle(data []byte) (int, error) {
 	var (
 		parsedLength int
@@ -159,21 +143,21 @@ func (r *Request) parseSingle(data []byte) (int, error) {
 	case RequestStateDone:
 		err = fmt.Errorf("error:trying to read data in a done state")
 	case RequestStateInitialized:
-		log.Printf("...currently parsing the start line , current data: %s", string(data))
-		requestLine, _, requestLineLength, parseError := parseRequestLine(string(data))
-		if requestLineLength == 0 {
-			log.Println("waiting for more data before the request line is parsed")
+		// log.Printf("...currently parsing the start line , current data: %s", string(data))
+		requestLine, _, requestLineBytesParsed, parseError := parseRequestLine(string(data))
+		if requestLineBytesParsed == 0 {
+			// log.Println("waiting for more data before the request line is parsed")
 			break
 		}
 		// update status and the requestLine
 		r.Status = RequestStateParsingHeaders
 		r.RequestLine = *requestLine
 
-		parsedLength += requestLineLength
+		parsedLength += requestLineBytesParsed
 
 		err = parseError
 	case RequestStateParsingHeaders:
-		log.Printf("...currently parsing the headers , current data: %s", string(data))
+		// log.Printf("...currently parsing the headers , current data: %s", string(data))
 		headersLength, done, parseError := r.Headers.Parse(data)
 		parsedLength += headersLength
 		err = parseError
@@ -184,7 +168,7 @@ func (r *Request) parseSingle(data []byte) (int, error) {
 			r.Status = RequestStateDone
 		}
 	default:
-		err = fmt.Errorf("invalid parser state")
+		err = fmt.Errorf("invalid state")
 	}
 
 	return parsedLength, err
@@ -208,6 +192,7 @@ func parseRequestLine(s string) (*RequestLine, string, int, error) {
 	}
 	restOfMessage := s[idx+len(separator):]
 	httpParts := strings.Split(parts[2], "/")
+	fmt.Println("HTTP Parts=>", httpParts)
 	if len(httpParts) != 2 || httpParts[0] != "HTTP" || httpParts[1] != "1.1" {
 		return nil, restOfMessage, lengthParsed, ERROR_MALFORMED_START_LINE
 	}
