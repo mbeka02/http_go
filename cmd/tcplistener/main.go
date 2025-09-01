@@ -24,7 +24,9 @@ func main() {
 		log.Println("a new connection has been accepted")
 		// read and parse data from the connection
 		request, err := request.RequestFromReader(conn)
-		fmt.Printf("\nRequest line:\n- Method:  %s\n- Target:  %s\n- Version: %s\n", request.RequestLine.Method, request.RequestLine.RequestTarget, request.RequestLine.HttpVersion)
-
+		fmt.Printf("\nRequest line:\n- Method:  %s\n- Target:  %s\n- Version: %s\nHeaders:\n", request.RequestLine.Method, request.RequestLine.RequestTarget, request.RequestLine.HttpVersion)
+		for key, value := range request.Headers {
+			fmt.Printf("- %s: %s\n", key, value)
+		}
 	}
 }
