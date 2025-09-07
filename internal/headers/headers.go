@@ -24,7 +24,8 @@ func NewHeaders() Headers {
 }
 
 func (h Headers) Get(key string) string {
-	val, ok := h[key]
+	formattedKey := strings.ToLower(key)
+	val, ok := h[formattedKey]
 	if !ok {
 		log.Println(ERROR_MISSING_HEADER_KEY)
 
@@ -34,7 +35,8 @@ func (h Headers) Get(key string) string {
 }
 
 func (h Headers) Set(key, value string) {
-	h[key] = value
+	formattedKey := strings.ToLower(key)
+	h[formattedKey] = value
 }
 
 func (h Headers) List() {
@@ -68,7 +70,7 @@ func (h Headers) Parse(data []byte) (int, bool, error) {
 			return dataRead, done, err
 		}
 		dataRead += idx + len(crlf)
-		fmt.Println("read:", dataRead, "bytes")
+		// fmt.Println("read:", dataRead, "bytes")
 		// add the pair to the headers map
 		val, ok := h[fieldName]
 		if ok {
