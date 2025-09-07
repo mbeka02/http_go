@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
+	"strconv"
 	"strings"
 
 	"github.com/mbeka02/go_http/internal/headers"
@@ -15,12 +17,14 @@ type Request struct {
 	RequestLine RequestLine
 	Status      Status
 	Headers     headers.Headers
+	Body        []byte
 }
 
 const (
 	RequestStateInitialized    Status = iota // 0
 	RequestStateDone                         // 1
 	RequestStateParsingHeaders               // 2
+	RequestStateParsingBody                  // 3
 )
 const bufferSize = 8
 
@@ -39,6 +43,7 @@ var (
 	ERROR_MALFORMED_START_LINE  = fmt.Errorf("Malformed Start Line")
 	ERROR_INCOMPLETE_START_LINE = fmt.Errorf("The Start Line is incomplete")
 )
+var separator = "\r\n"
 
 func (ch *chunkReader) Read(data []byte) (numBytes int, err error) {
 	// return if all the data has been read
@@ -143,10 +148,9 @@ func (r *Request) parseSingle(data []byte) (int, error) {
 	case RequestStateDone:
 		err = fmt.Errorf("error:trying to read data in a done state")
 	case RequestStateInitialized:
-		// log.Printf("...currently parsing the start line , current data: %s", string(data))
 		requestLine, _, requestLineBytesParsed, parseError := parseRequestLine(string(data))
+		// more content is needed before parsing the req line
 		if requestLineBytesParsed == 0 {
-			// log.Println("waiting for more data before the request line is parsed")
 			break
 		}
 		// update status and the requestLine
@@ -157,15 +161,61 @@ func (r *Request) parseSingle(data []byte) (int, error) {
 
 		err = parseError
 	case RequestStateParsingHeaders:
-		// log.Printf("...currently parsing the headers , current data: %s", string(data))
 		headersLength, done, parseError := r.Headers.Parse(data)
 		parsedLength += headersLength
-		err = parseError
+
 		if parseError != nil {
-			break // or return error
+			err = parseError
+			break
 		}
 		if done {
+			r.Status = RequestStateParsingBody
+		}
+	case RequestStateParsingBody:
+		log.Println("checkpoint 1")
+		contentLength := r.Headers.Get("Content-Length")
+		// Move to the done state since there's no  request body to parse
+		if contentLength == "" {
 			r.Status = RequestStateDone
+			break
+		}
+		expectedLength, conversionErr := strconv.Atoi(contentLength)
+		if conversionErr != nil {
+			err = conversionErr
+			break
+		}
+		if expectedLength < 0 {
+			err = fmt.Errorf("invalid Content-Length: cannot be negative")
+			break
+		}
+		currentBodyLength := len(r.Body)
+		remainingBodyNeeded := expectedLength - currentBodyLength
+		if remainingBodyNeeded <= 0 {
+			if remainingBodyNeeded < 0 {
+				err = fmt.Errorf("body length (%d) exceeds Content-Length (%d)", currentBodyLength, expectedLength)
+				break
+			}
+			// In this case everything is done
+			r.Status = RequestStateDone
+			break
+		}
+
+		availableData := len(data)
+		dataToConsume := remainingBodyNeeded
+		// There's not enough data present so just consume what's there
+		if availableData < remainingBodyNeeded {
+			dataToConsume = availableData
+		}
+		// Append the data to the body
+		r.Body = append(r.Body, data[:dataToConsume]...)
+		parsedLength += dataToConsume
+
+		// Terminate if the body is complete
+		if len(r.Body) == expectedLength {
+			r.Status = RequestStateDone
+		} else if len(r.Body) > expectedLength {
+			//  safety check
+			err = fmt.Errorf("body length (%d) exceeds Content-Length (%d)", len(r.Body), expectedLength)
 		}
 	default:
 		err = fmt.Errorf("invalid state")
@@ -175,7 +225,6 @@ func (r *Request) parseSingle(data []byte) (int, error) {
 }
 
 func parseRequestLine(s string) (*RequestLine, string, int, error) {
-	separator := "\r\n"
 	idx := strings.Index(s, separator)
 	// If there are no occurences of the separator in s do an early return
 	// This just means that more data is needed before parsing the request line.
@@ -192,7 +241,7 @@ func parseRequestLine(s string) (*RequestLine, string, int, error) {
 	}
 	restOfMessage := s[idx+len(separator):]
 	httpParts := strings.Split(parts[2], "/")
-	fmt.Println("HTTP Parts=>", httpParts)
+	// fmt.Println("HTTP Parts=>", httpParts)
 	if len(httpParts) != 2 || httpParts[0] != "HTTP" || httpParts[1] != "1.1" {
 		return nil, restOfMessage, lengthParsed, ERROR_MALFORMED_START_LINE
 	}
