@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"strconv"
 	"strings"
 
@@ -172,7 +171,6 @@ func (r *Request) parseSingle(data []byte) (int, error) {
 			r.Status = RequestStateParsingBody
 		}
 	case RequestStateParsingBody:
-		log.Println("checkpoint 1")
 		contentLength := r.Headers.Get("Content-Length")
 		// Move to the done state since there's no  request body to parse
 		if contentLength == "" {
