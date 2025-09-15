@@ -64,7 +64,7 @@ Hello World!`))
 	}
 
 	defer func() {
-		log.Printf("closing the connection : %v\n", err)
+		log.Println("...closing the connection")
 		conn.Close()
 	}()
 }
