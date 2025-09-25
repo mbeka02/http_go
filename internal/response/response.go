@@ -36,11 +36,6 @@ func WriteStatusLine(w io.Writer, statusCode StatusCode) error {
 }
 
 func WriteHeaders(w io.Writer, headers headers.Headers) error {
-	defaultHeaders := GetDefaultHeaders(0)
-	// add the default headers
-	for key, value := range defaultHeaders {
-		headers[key] = value
-	}
 	var (
 		builder strings.Builder
 		result  string
@@ -50,7 +45,6 @@ func WriteHeaders(w io.Writer, headers headers.Headers) error {
 		builder.WriteString(headerText)
 
 	}
-	// terminate headers  (SUPER IMPORTANT)
 	builder.WriteString("\r\n")
 	result = builder.String()
 	n, err := w.Write([]byte(result))
