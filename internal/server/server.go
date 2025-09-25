@@ -6,6 +6,9 @@ import (
 	"log"
 	"net"
 	"sync/atomic"
+
+	"github.com/mbeka02/go_http/internal/headers"
+	"github.com/mbeka02/go_http/internal/response"
 )
 
 type Server struct {
@@ -54,13 +57,14 @@ func (s *Server) listen() {
 // Handles a single connection by writing the following response and then closing the connection
 func (s *Server) handle(conn net.Conn) {
 	log.Printf("Handling connection from %s", conn.RemoteAddr())
-	_, err := conn.Write([]byte(`
-HTTP/1.1 200 OK
-Content-Type: text/plain
-Content-Length: 13
-Hello World!`))
+	headers := headers.NewHeaders()
+	err := response.WriteStatusLine(conn, response.StatusCodeOK)
 	if err != nil {
-		log.Printf("write err:%v", err)
+		log.Printf("error writing status line:%v", err)
+	}
+	err = response.WriteHeaders(conn, headers)
+	if err != nil {
+		log.Printf("error writing headers:%v", err)
 	}
 
 	defer func() {
