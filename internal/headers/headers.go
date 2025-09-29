@@ -27,7 +27,7 @@ func (h Headers) Get(key string) string {
 	formattedKey := strings.ToLower(key)
 	val, ok := h[formattedKey]
 	if !ok {
-		log.Println(ERROR_MISSING_HEADER_KEY)
+		log.Println(formattedKey, ERROR_MISSING_HEADER_KEY)
 
 		return ""
 	}

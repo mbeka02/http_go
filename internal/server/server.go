@@ -9,7 +9,6 @@ import (
 	"net"
 	"sync/atomic"
 
-	"github.com/mbeka02/go_http/internal/headers"
 	"github.com/mbeka02/go_http/internal/request"
 	"github.com/mbeka02/go_http/internal/response"
 )
@@ -24,7 +23,7 @@ type HandlerError struct {
 	StatusCode int
 }
 
-type Handler func(w io.Writer, req *request.Request) *HandlerError
+type Handler func(w *response.Writer, req *request.Request)
 
 func respondWithError(w io.Writer, message string, statusCode int) error {
 	var statusLine string
@@ -75,27 +74,22 @@ func (s *Server) Close() error {
 	return s.listener.Close()
 }
 
-// Uses a loop to accept new connections as they come in, and handles each one in a new goroutine. I used an atomic.Bool to track whether the server is closed or not so that I can ignore connection errors after the server is closed.
+// Uses a loop to accept new connections as they come in, and handles each one in a new goroutine.
 func (s *Server) listen() {
 	for {
 		conn, err := s.listener.Accept()
-
-		if errors.Is(err, net.ErrClosed) {
-			return
-		}
 		if err != nil {
-			// Only log error if server hasn't been closed
-			if !s.closed.Load() {
-				log.Printf("TCP accept() error: %s", err)
+			if errors.Is(err, net.ErrClosed) {
+				return
 			}
-			// continue - go back to the top of the for loop and try Accept() again
+			// Go back to the top of the for loop and try Accept() again
 			continue
 		}
 		go s.handle(conn)
 	}
 }
 
-// Handles a single connection by writing the following response and then closing the connection
+// Handles a single connection by writing the  response and then closing the connection
 func (s *Server) handle(conn net.Conn) {
 	log.Printf("Handling connection from %s", conn.RemoteAddr())
 	// parse the request from the connection
@@ -105,32 +99,21 @@ func (s *Server) handle(conn net.Conn) {
 		respondWithError(conn, "Bad Request", 400)
 		return
 	}
-	buff := new(bytes.Buffer)
-	handlerError := s.handler(buff, r)
-	if handlerError != nil {
-		respondWithError(conn, handlerError.Message, handlerError.StatusCode)
-		return
-	}
-	defaultHeaders := response.GetDefaultHeaders(buff.Len()) // pass the length of the response body
-	headers := headers.NewHeaders()
-	// write the status line
-	err = response.WriteStatusLine(conn, response.StatusCodeOK)
-	if err != nil {
-		log.Printf("error writing status line:%v", err)
-	}
-	// add the default headers to the headers map
-	for key, value := range defaultHeaders {
-		headers[key] = value
-	}
-	// write the headers
-	err = response.WriteHeaders(conn, headers)
-	if err != nil {
-		log.Printf("error writing headers:%v", err)
-	}
-	// write the  response body from the handlers buffer
-	conn.Write(buff.Bytes())
 	defer func() {
 		log.Println("...closing the connection")
 		conn.Close()
 	}()
+	buff := new(bytes.Buffer)
+	writer := response.NewWriter(buff)
+	s.handler(writer, r)
+	// flush  writes the headers and body to the buffer
+	if err := writer.Flush(); err != nil {
+		log.Printf("error flushing writer: %v", err)
+		respondWithError(conn, "Internal Server Error", 500)
+		return
+	}
+	// write the  response body from the handlers buffer
+	if _, err := conn.Write(buff.Bytes()); err != nil {
+		log.Printf("error writing to conn: %v", err)
+	}
 }
