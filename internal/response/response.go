@@ -1,7 +1,6 @@
 package response
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"log"
@@ -14,12 +13,15 @@ import (
 type (
 	StatusCode   int
 	writerStatus int
+	writerMode   int
 )
 
 type Writer struct {
-	buffer  *bytes.Buffer
-	headers headers.Headers
-	body    []byte
+	mode       writerMode
+	headersSet bool
+	headers    headers.Headers
+	output     io.Writer // in this case write directly to the connection (net.Conn)
+	body       []byte
 }
 
 const (
@@ -36,68 +38,136 @@ const (
 	WriterStatusDone
 )
 
-func NewWriter(buffer *bytes.Buffer) *Writer {
-	return &Writer{buffer: buffer, headers: headers.NewHeaders()}
+const (
+	WriterModeBuffered writerMode = iota
+	WriterModeChunked
+)
+
+func NewWriter(w io.Writer) *Writer {
+	return &Writer{headers: headers.NewHeaders(), mode: WriterModeBuffered, output: w}
+}
+
+// switches to chunked encoding instead of the default
+func (w *Writer) EnableChunkedEncoding() {
+	w.mode = WriterModeChunked
+	w.headers.Set("Transfer-Encoding", "chunked")
+	w.headers.Delete("Content-Length")
+}
+
+// SetHeaders merges user-provided headers with the writer's headers.
+// User headers take precedence, but protected headers cannot be overridden.
+func (w *Writer) SetHeaders(userHeaders headers.Headers) error {
+	if w.headersSet {
+		return fmt.Errorf("headers have already been written")
+	}
+	// Protected headers that should not be overridden by handlers
+	protectedHeaders := map[string]bool{
+		"transfer-encoding": w.mode == WriterModeChunked,
+		"content-length":    w.mode == WriterModeBuffered,
+	}
+	// add user headers to the internal headers
+	for key, value := range userHeaders {
+		normalizedKey := strings.ToLower(key)
+
+		if protectedHeaders[normalizedKey] {
+			log.Printf("Warning: handler attempted to set protected header '%s', ignoring", key)
+			continue
+		}
+
+		w.headers.Set(key, value)
+	}
+	return nil
+}
+
+func (w *Writer) CheckMode() writerMode {
+	return w.mode
 }
 
 func (w *Writer) WriteStatusLine(statusCode StatusCode) error {
-	var err error
+	var line string
 	switch statusCode {
 	case StatusCodeOK:
-		n, writeErr := w.buffer.Write([]byte("HTTP/1.1 200 OK\r\n"))
-		err = writeErr
-		log.Println("Written:", n, "bytes to the buffer")
+		line = "HTTP/1.1 200 OK\r\n"
 	case StatusCodeBadRequest:
-		_, err = w.buffer.Write([]byte("HTTP/1.1 400 Bad Request\r\n"))
+		line = "HTTP/1.1 400 Bad Request\r\n"
 	case StatusCodeInternalServerError:
-		_, err = w.buffer.Write([]byte("HTTP/1.1 500 Internal Server Errror\r\n"))
+		line = "HTTP/1.1 500 Internal Server Errror\r\n"
 	default:
 		log.Println("unsupported status code,leaving the reason phrase blank")
 	}
+	// just write it directly to the conn
+	_, err := w.output.Write([]byte(line))
 	return err
 }
 
 func (w *Writer) Flush() error {
+	if w.mode == WriterModeChunked {
+		return fmt.Errorf("cannot WriteBody in chunked mode, use WriteChunkedBody")
+	}
 	w.headers.Set("Content-Length", strconv.Itoa(len(w.body)))
+	if !w.headersSet {
+		if err := w.writeHeaders(); err != nil {
+			return err
+		}
+	}
+	// write body
+	_, err := w.output.Write(w.body)
+	return err
+}
 
-	// write headers
+func (w *Writer) WriteChunkedBody(p []byte) (int, error) {
+	if w.mode != WriterModeChunked {
+		return 0, fmt.Errorf("The writer must be in chunked mode")
+	}
+	CRLF := "\r\n"
+
+	// Write headers on first chunk if not already written
+	if !w.headersSet {
+		if err := w.writeHeaders(); err != nil {
+			return 0, err
+		}
+	}
+
+	// format
+	// hex size of data\CRLF
+	// chunk data\CRLF
+	sizeLine := fmt.Sprintf("%x%s", len(p), CRLF)
+	if _, err := w.output.Write([]byte(sizeLine)); err != nil {
+		return 0, err
+	}
+	p = append(p, []byte(CRLF)...)
+	if _, err := w.output.Write(p); err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
+func (w *Writer) WriteChunkedBodyDone() (int, error) {
+	if w.mode != WriterModeChunked {
+		return 0, fmt.Errorf("The writer must be in chunked mode")
+	}
+	data := []byte("0\r\n\r\n")
+	_, err := w.output.Write(data)
+	return len(data), err
+}
+
+func (w *Writer) writeHeaders() error {
 	var builder strings.Builder
 	for key, value := range w.headers {
 		h := fmt.Sprintf("%s: %s\r\n", key, value)
 		builder.WriteString(h)
 	}
 	builder.WriteString("\r\n")
-	w.buffer.Write([]byte(builder.String()))
+	w.headersSet = true
+	_, err := w.output.Write([]byte(builder.String()))
 
-	// write body
-	_, err := w.buffer.Write(w.body)
 	return err
-}
-
-func (w *Writer) WriteHeaders(headers headers.Headers) error {
-	w.headers = headers
-	return nil
 }
 
 func (w *Writer) WriteBody(p []byte) (int, error) {
+	if w.mode == WriterModeChunked {
+		return 0, fmt.Errorf("cannot WriteBody in chunked mode, use WriteChunkedBody")
+	}
 	w.body = append(w.body, p...)
 	return len(p), nil
-}
-
-func WriteHeaders(w io.Writer, headers headers.Headers) error {
-	var (
-		builder strings.Builder
-		result  string
-	)
-	for key, value := range headers {
-		headerText := fmt.Sprintf("%s:%s\r\n", key, value)
-		builder.WriteString(headerText)
-
-	}
-	builder.WriteString("\r\n")
-	result = builder.String()
-	n, err := w.Write([]byte(result))
-	log.Println("Written:", n, "bytes to the connection")
-
-	return err
 }

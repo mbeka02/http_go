@@ -1,9 +1,12 @@
 package main
 
 import (
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/mbeka02/go_http/internal/headers"
@@ -20,10 +23,31 @@ func main() {
 		h.Set("Content-Type", "text/html")
 		h.Set("Connection", "close")
 
-		switch req.RequestLine.RequestTarget {
-		case "/yourproblem":
+		switch {
+		case strings.HasPrefix(req.RequestLine.RequestTarget, "/httpbin/"):
+			w.WriteStatusLine(response.StatusCodeOK)
+			newHeaders := headers.NewHeaders()
+			newHeaders.Set("Content-Type", "application/json")
+			newHeaders.Set("Connection", "close")
+			w.SetHeaders(newHeaders)
+			w.EnableChunkedEncoding()
+			// stream from httpbin
+			resp, _ := http.Get("https://httpbin.org" + strings.TrimPrefix(req.RequestLine.RequestTarget, "/httpbin"))
+			defer resp.Body.Close()
+			buf := make([]byte, 1024)
+			for {
+				n, err := resp.Body.Read(buf)
+				if n > 0 {
+					w.WriteChunkedBody(buf[:n])
+				}
+				if err == io.EOF {
+					break
+				}
+			}
+			w.WriteChunkedBodyDone()
+		case strings.HasPrefix(req.RequestLine.RequestTarget, "/yourproblem"):
 			w.WriteStatusLine(response.StatusCodeBadRequest)
-			w.WriteHeaders(h)
+			w.SetHeaders(h)
 			w.WriteBody([]byte(`
 <html>
   <head>
@@ -35,9 +59,10 @@ func main() {
   </body>
 </html>
       `))
-		case "/myproblem":
+		case strings.HasPrefix(req.RequestLine.RequestTarget, "/myproblem"):
+
 			w.WriteStatusLine(response.StatusCodeInternalServerError)
-			w.WriteHeaders(h)
+			w.SetHeaders(h)
 			w.WriteBody([]byte(`
 <html>
   <head>
@@ -51,7 +76,7 @@ func main() {
       `))
 		default:
 			w.WriteStatusLine(response.StatusCodeOK)
-			w.WriteHeaders(h)
+			w.SetHeaders(h)
 			w.WriteBody([]byte(`
 <html>
   <head>

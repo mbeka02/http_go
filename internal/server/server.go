@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -92,6 +91,10 @@ func (s *Server) listen() {
 // Handles a single connection by writing the  response and then closing the connection
 func (s *Server) handle(conn net.Conn) {
 	log.Printf("Handling connection from %s", conn.RemoteAddr())
+	defer func() {
+		log.Println("...closing the connection")
+		conn.Close()
+	}()
 	// parse the request from the connection
 	r, err := request.RequestFromReader(conn)
 	if err != nil {
@@ -99,21 +102,18 @@ func (s *Server) handle(conn net.Conn) {
 		respondWithError(conn, "Bad Request", 400)
 		return
 	}
-	defer func() {
-		log.Println("...closing the connection")
-		conn.Close()
-	}()
-	buff := new(bytes.Buffer)
-	writer := response.NewWriter(buff)
+	writer := response.NewWriter(conn)
+
 	s.handler(writer, r)
-	// flush  writes the headers and body to the buffer
-	if err := writer.Flush(); err != nil {
-		log.Printf("error flushing writer: %v", err)
-		respondWithError(conn, "Internal Server Error", 500)
-		return
-	}
-	// write the  response body from the handlers buffer
-	if _, err := conn.Write(buff.Bytes()); err != nil {
-		log.Printf("error writing to conn: %v", err)
+	if writer.CheckMode() == response.WriterModeChunked {
+		log.Println("... writer is in chunked mode")
+	} else {
+		// flush  writes the headers and body to the buffer
+		log.Println("... writer is in buffered mode , flushing the headers and response body")
+		if err := writer.Flush(); err != nil {
+			log.Printf("error flushing writer: %v", err)
+			respondWithError(conn, "Internal Server Error", 500)
+			return
+		}
 	}
 }
