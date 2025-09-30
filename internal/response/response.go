@@ -47,7 +47,7 @@ func NewWriter(w io.Writer) *Writer {
 	return &Writer{headers: headers.NewHeaders(), mode: WriterModeBuffered, output: w}
 }
 
-// switches to chunked encoding instead of the default
+// switches to chunked encoding instead of buffering the response (default)
 func (w *Writer) EnableChunkedEncoding() {
 	w.mode = WriterModeChunked
 	w.headers.Set("Transfer-Encoding", "chunked")
@@ -67,9 +67,9 @@ func (w *Writer) SetHeaders(userHeaders headers.Headers) error {
 	}
 	// add user headers to the internal headers
 	for key, value := range userHeaders {
-		normalizedKey := strings.ToLower(key)
+		formattedKey := strings.ToLower(key)
 
-		if protectedHeaders[normalizedKey] {
+		if protectedHeaders[formattedKey] {
 			log.Printf("Warning: handler attempted to set protected header '%s', ignoring", key)
 			continue
 		}
@@ -95,14 +95,13 @@ func (w *Writer) WriteStatusLine(statusCode StatusCode) error {
 	default:
 		log.Println("unsupported status code,leaving the reason phrase blank")
 	}
-	// just write it directly to the conn
 	_, err := w.output.Write([]byte(line))
 	return err
 }
 
 func (w *Writer) Flush() error {
 	if w.mode == WriterModeChunked {
-		return fmt.Errorf("cannot WriteBody in chunked mode, use WriteChunkedBody")
+		return fmt.Errorf("cannot flush in chunked mode, use WriteChunkedBody() or change the writer mode")
 	}
 	w.headers.Set("Content-Length", strconv.Itoa(len(w.body)))
 	if !w.headersSet {
@@ -110,7 +109,6 @@ func (w *Writer) Flush() error {
 			return err
 		}
 	}
-	// write body
 	_, err := w.output.Write(w.body)
 	return err
 }
@@ -128,9 +126,9 @@ func (w *Writer) WriteChunkedBody(p []byte) (int, error) {
 		}
 	}
 
-	// format
-	// hex size of data\CRLF
-	// chunk data\CRLF
+	// chunked encoding format
+	// hex size of data+CRLF
+	// chunk data+CRLF
 	sizeLine := fmt.Sprintf("%x%s", len(p), CRLF)
 	if _, err := w.output.Write([]byte(sizeLine)); err != nil {
 		return 0, err
@@ -166,7 +164,7 @@ func (w *Writer) writeHeaders() error {
 
 func (w *Writer) WriteBody(p []byte) (int, error) {
 	if w.mode == WriterModeChunked {
-		return 0, fmt.Errorf("cannot WriteBody in chunked mode, use WriteChunkedBody")
+		return 0, fmt.Errorf("cannot WriteBody in chunked mode, use WriteChunkedBody() or switch the writer mode")
 	}
 	w.body = append(w.body, p...)
 	return len(p), nil

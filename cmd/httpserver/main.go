@@ -31,14 +31,13 @@ func main() {
 			newHeaders.Set("Connection", "close")
 			w.SetHeaders(newHeaders)
 			w.EnableChunkedEncoding()
-			// stream from httpbin
 			resp, _ := http.Get("https://httpbin.org" + strings.TrimPrefix(req.RequestLine.RequestTarget, "/httpbin"))
 			defer resp.Body.Close()
-			buf := make([]byte, 1024)
+			buff := make([]byte, 1024)
 			for {
-				n, err := resp.Body.Read(buf)
+				n, err := resp.Body.Read(buff)
 				if n > 0 {
-					w.WriteChunkedBody(buf[:n])
+					w.WriteChunkedBody(buff[:n])
 				}
 				if err == io.EOF {
 					break
