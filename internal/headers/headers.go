@@ -34,6 +34,11 @@ func (h Headers) Get(key string) string {
 	return val
 }
 
+func (h Headers) Delete(key string) {
+	formattedKey := strings.ToLower(key)
+	delete(h, formattedKey)
+}
+
 func (h Headers) Set(key, value string) {
 	formattedKey := strings.ToLower(key)
 	h[formattedKey] = value
