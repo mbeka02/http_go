@@ -58,7 +58,7 @@ func (w *Writer) EnableChunkedEncoding() {
 // User headers take precedence, but protected headers cannot be overridden.
 func (w *Writer) SetHeaders(userHeaders headers.Headers) error {
 	if w.headersSet {
-		return fmt.Errorf("headers have already been written")
+		return fmt.Errorf("error: headers have already been written")
 	}
 	// Protected headers that should not be overridden by handlers
 	protectedHeaders := map[string]bool{
@@ -77,6 +77,20 @@ func (w *Writer) SetHeaders(userHeaders headers.Headers) error {
 		w.headers.Set(key, value)
 	}
 	return nil
+}
+
+func (w *Writer) WriteTrailers(h headers.Headers) error {
+	if w.mode != WriterModeChunked {
+		return fmt.Errorf("error: trailers require chunked transfer encoding")
+	}
+	var builder strings.Builder
+	for key, value := range h {
+		header := fmt.Sprintf("%s: %s\r\n", key, value)
+		builder.WriteString(header)
+	}
+	builder.WriteString("\r\n")
+	_, err := w.output.Write([]byte(builder.String()))
+	return err
 }
 
 func (w *Writer) CheckMode() writerMode {
@@ -101,7 +115,7 @@ func (w *Writer) WriteStatusLine(statusCode StatusCode) error {
 
 func (w *Writer) Flush() error {
 	if w.mode == WriterModeChunked {
-		return fmt.Errorf("cannot flush in chunked mode, use WriteChunkedBody() or change the writer mode")
+		return fmt.Errorf("error: cannot flush in chunked mode, use WriteChunkedBody() or change the writer mode")
 	}
 	w.headers.Set("Content-Length", strconv.Itoa(len(w.body)))
 	if !w.headersSet {
@@ -115,7 +129,7 @@ func (w *Writer) Flush() error {
 
 func (w *Writer) WriteChunkedBody(p []byte) (int, error) {
 	if w.mode != WriterModeChunked {
-		return 0, fmt.Errorf("The writer must be in chunked mode")
+		return 0, fmt.Errorf("error: the writer must be in chunked mode")
 	}
 	CRLF := "\r\n"
 
@@ -142,9 +156,9 @@ func (w *Writer) WriteChunkedBody(p []byte) (int, error) {
 
 func (w *Writer) WriteChunkedBodyDone() (int, error) {
 	if w.mode != WriterModeChunked {
-		return 0, fmt.Errorf("The writer must be in chunked mode")
+		return 0, fmt.Errorf("error: the writer must be in chunked mode")
 	}
-	data := []byte("0\r\n\r\n")
+	data := []byte("0\r\n")
 	_, err := w.output.Write(data)
 	return len(data), err
 }
@@ -164,7 +178,7 @@ func (w *Writer) writeHeaders() error {
 
 func (w *Writer) WriteBody(p []byte) (int, error) {
 	if w.mode == WriterModeChunked {
-		return 0, fmt.Errorf("cannot WriteBody in chunked mode, use WriteChunkedBody() or switch the writer mode")
+		return 0, fmt.Errorf("error: cannot WriteBody in chunked mode, use WriteChunkedBody() or switch the writer mode")
 	}
 	w.body = append(w.body, p...)
 	return len(p), nil

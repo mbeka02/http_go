@@ -1,11 +1,14 @@
 package main
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -29,21 +32,31 @@ func main() {
 			newHeaders := headers.NewHeaders()
 			newHeaders.Set("Content-Type", "application/json")
 			newHeaders.Set("Connection", "close")
+			newHeaders.Set("Trailer", "X-Content-SHA256")
+			newHeaders.Set("Trailer", "X-Content-Length")
 			w.SetHeaders(newHeaders)
 			w.EnableChunkedEncoding()
 			resp, _ := http.Get("https://httpbin.org" + strings.TrimPrefix(req.RequestLine.RequestTarget, "/httpbin"))
 			defer resp.Body.Close()
 			buff := make([]byte, 1024)
+			hash := sha256.New()
+			var total int
 			for {
 				n, err := resp.Body.Read(buff)
 				if n > 0 {
+					total += n
 					w.WriteChunkedBody(buff[:n])
+					hash.Write(buff[:n])
 				}
 				if err == io.EOF {
 					break
 				}
 			}
 			w.WriteChunkedBodyDone()
+			trailer := headers.NewHeaders()
+			trailer.Set("X-Content-SHA256", fmt.Sprintf("%x", hash.Sum(nil)))
+			trailer.Set("X-Content-Length", strconv.Itoa(total))
+			w.WriteTrailers(trailer)
 		case strings.HasPrefix(req.RequestLine.RequestTarget, "/yourproblem"):
 			w.WriteStatusLine(response.StatusCodeBadRequest)
 			w.SetHeaders(h)

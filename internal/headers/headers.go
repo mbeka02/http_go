@@ -41,7 +41,12 @@ func (h Headers) Delete(key string) {
 
 func (h Headers) Set(key, value string) {
 	formattedKey := strings.ToLower(key)
-	h[formattedKey] = value
+	if existingValue, ok := h[formattedKey]; !ok {
+		h[formattedKey] = value
+	} else {
+		// if the key already exists then send will append the value
+		h[formattedKey] = existingValue + "," + value
+	}
 }
 
 func (h Headers) List() {
