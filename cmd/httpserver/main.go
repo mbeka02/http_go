@@ -52,11 +52,24 @@ func main() {
 					break
 				}
 			}
-			w.WriteChunkedBodyDone()
 			trailer := headers.NewHeaders()
 			trailer.Set("X-Content-SHA256", fmt.Sprintf("%x", hash.Sum(nil)))
 			trailer.Set("X-Content-Length", strconv.Itoa(total))
-			w.WriteTrailers(trailer)
+			w.WriteChunkedBodyDoneWithTrailers(trailer)
+		case strings.HasPrefix(req.RequestLine.RequestTarget, "/video"):
+			w.WriteStatusLine(response.StatusCodeOK)
+			newHeaders := headers.NewHeaders()
+			newHeaders.Set("Content-Type", "video/mp4")
+			newHeaders.Set("Connection", "close")
+			w.SetHeaders(newHeaders)
+			w.EnableChunkedEncoding()
+			b, err := os.ReadFile("./assets/vim.mp4")
+			if err != nil {
+				log.Fatalf("err : file not found (%v)", err)
+			}
+			w.WriteChunkedBody(b)
+			w.WriteChunkedBodyDone()
+
 		case strings.HasPrefix(req.RequestLine.RequestTarget, "/yourproblem"):
 			w.WriteStatusLine(response.StatusCodeBadRequest)
 			w.SetHeaders(h)

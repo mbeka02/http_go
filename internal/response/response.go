@@ -79,20 +79,6 @@ func (w *Writer) SetHeaders(userHeaders headers.Headers) error {
 	return nil
 }
 
-func (w *Writer) WriteTrailers(h headers.Headers) error {
-	if w.mode != WriterModeChunked {
-		return fmt.Errorf("error: trailers require chunked transfer encoding")
-	}
-	var builder strings.Builder
-	for key, value := range h {
-		header := fmt.Sprintf("%s: %s\r\n", key, value)
-		builder.WriteString(header)
-	}
-	builder.WriteString("\r\n")
-	_, err := w.output.Write([]byte(builder.String()))
-	return err
-}
-
 func (w *Writer) CheckMode() writerMode {
 	return w.mode
 }
@@ -154,15 +140,6 @@ func (w *Writer) WriteChunkedBody(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func (w *Writer) WriteChunkedBodyDone() (int, error) {
-	if w.mode != WriterModeChunked {
-		return 0, fmt.Errorf("error: the writer must be in chunked mode")
-	}
-	data := []byte("0\r\n")
-	_, err := w.output.Write(data)
-	return len(data), err
-}
-
 func (w *Writer) writeHeaders() error {
 	var builder strings.Builder
 	for key, value := range w.headers {
@@ -173,6 +150,32 @@ func (w *Writer) writeHeaders() error {
 	w.headersSet = true
 	_, err := w.output.Write([]byte(builder.String()))
 
+	return err
+}
+
+func (w *Writer) WriteChunkedBodyDone() error {
+	return w.WriteChunkedBodyDoneWithTrailers(nil)
+}
+
+func (w *Writer) WriteChunkedBodyDoneWithTrailers(trailers headers.Headers) error {
+	if w.mode != WriterModeChunked {
+		return fmt.Errorf("error: the writer must be in chunked mode")
+	}
+
+	if _, err := w.output.Write([]byte("0\r\n")); err != nil {
+		return err
+	}
+
+	return w.writeTrailers(trailers)
+}
+
+func (w *Writer) writeTrailers(h headers.Headers) error {
+	var builder strings.Builder
+	for key, value := range h {
+		builder.WriteString(fmt.Sprintf("%s: %s\r\n", key, value))
+	}
+	builder.WriteString("\r\n")
+	_, err := w.output.Write([]byte(builder.String()))
 	return err
 }
 
